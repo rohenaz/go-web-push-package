@@ -16,9 +16,9 @@ import (
 )
 
 type PushPackageConfig struct {
-	website      WebsiteConfig
+	website      websiteConfig
 	iconPath     string
-	certificates CertificatesConfig
+	certificates certificatesConfig
 }
 
 // websiteName - The website name. This is the heading used in Notification Center.
@@ -27,7 +27,7 @@ type PushPackageConfig struct {
 // urlFormatString -The URL to go to when the notification is clicked. Use %@ as a placeholder for arguments you fill in when delivering your notification. This URL must use the http or https scheme; otherwise, it is invalid.
 // authenticationToken - A string that helps you identify the user. It is included in later requests to your web service. This string must 16 characters or greater.
 // webServiceURL - The location used to make requests to your web service. The trailing slash should be omitted.
-type WebsiteConfig struct {
+type websiteConfig struct {
 	websiteName         string   `json:"websiteName"`
 	websitePushID       string   `json:"websitePushID"`
 	allowedDomains      []string `json:"allowedDomains"`
@@ -36,7 +36,7 @@ type WebsiteConfig struct {
 	webServiceUrl       string   `json:"webServiceUrl"`
 }
 
-type CertificatesConfig struct {
+type certificatesConfig struct {
 	key    string
 	signer string
 }
@@ -52,7 +52,7 @@ type jsonFile struct {
 	name string
 }
 
-func (c *PushPackageConfig) GeneratePackage() {
+func (c *PushPackageConfig) GeneratePackage() (*bytes.Buffer, error) {
 
 	// potentilly good reference
 	// https://stackoverflow.com/questions/24472895/how-to-sign-manifest-json-for-safari-push-notifications-using-golang
@@ -61,7 +61,7 @@ func (c *PushPackageConfig) GeneratePackage() {
 	tempPath := c.makePackageFiles()
 
 	// Create a new zip archive.
-	// buf := new(bytes.Buffer)
+	buf := new(bytes.Buffer)
 	// z := zip.NewWriter(buf)
 
 	// Make the manifest
@@ -100,6 +100,7 @@ func (c *PushPackageConfig) GeneratePackage() {
 	// if err != nil {
 	// 	panic(err)
 	// }
+	return buf, err
 }
 
 func (c *PushPackageConfig) makePackageFiles() string {
@@ -165,7 +166,7 @@ func (c *PushPackageConfig) generateManifestJSON(tempPath string) jsonFile {
 
 }
 
-func (c *CertificatesConfig) generateManifestSignature(message []byte) []byte {
+func (c *certificatesConfig) generateManifestSignature(message []byte) []byte {
 	// ToDo - read local key file
 	keyfile := c.key
 	signed, err := openssl(message, "cms", "-sign", "-signer", keyfile)

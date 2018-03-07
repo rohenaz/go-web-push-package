@@ -31,7 +31,7 @@ PushPackageConfig {
 ```
 Generage the package and return the archive
 
-`buffer := Config.GeneratePackage()`
+`buffer, err := PushPackageConfig.GeneratePackage()`
 
 Write your response
 
