@@ -8,7 +8,7 @@ Uses openssl to sign the manifest
 
   $ go get github.com/rohenaz/go-web-push-package
 
-##usage
+## usage
 
 ```
 Define your package config as follows:
@@ -32,11 +32,17 @@ type CertificatesConfig struct {
 	key    string
 	signer string
 }
-
 ```
 Generage the package and return the archive
 
-`zipPath, zipData := Config.GeneratePackage()`
+`buffer := Config.GeneratePackage()`
+
+Write your response
+
+```
+w.Header().Set("Content-type", "application/zip")
+w.Write(buf.Bytes())
+```
 
 the above would generate a package looking like this
 
