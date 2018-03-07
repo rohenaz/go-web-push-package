@@ -13,24 +13,20 @@ Uses openssl to sign the manifest
 ```
 Define your package config as follows:
 
-type Config struct {
-	website      WebsiteConfig
-	iconPath     string
-	certificates CertificatesConfig
-}
-
-type WebsiteConfig struct {
-	websiteName         string   `json:"websiteName"`
-	websitePushID       string   `json:"websitePushID"`
-	allowedDomains      []string `json:"allowedDomains"`
-	urlFormatString     string   `json:"urlFormatString"`
-	authenticationToken string   `json:"authenticationToken"`
-	webServiceUrl       string   `json:"webServiceUrl"`
-}
-
-type CertificatesConfig struct {
-	key    string
-	signer string
+PushPackageConfig {
+	website {
+    "websiteName": "Test",
+    "websitePushID": "web.example.test",
+    "allowedDomains": ["https://example.com"],
+    "urlFormatString": "https://example.com/%@",
+    "authenticationToken": "19f8d7a6e9fb8a7f6d9330dabe",
+    "webServiceURL": "https://example.com",
+  }
+	iconPath: 'path/to/iconFolder'
+	certificates {
+    signer: 'certificates/cert.pem',
+		key: 'certificates/key.pem',
+  }
 }
 ```
 Generage the package and return the archive

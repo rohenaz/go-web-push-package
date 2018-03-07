@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-type Config struct {
+type PushPackageConfig struct {
 	website      WebsiteConfig
 	iconPath     string
 	certificates CertificatesConfig
@@ -52,7 +52,7 @@ type jsonFile struct {
 	name string
 }
 
-func (c *Config) GeneratePackage() {
+func (c *PushPackageConfig) GeneratePackage() {
 
 	// potentilly good reference
 	// https://stackoverflow.com/questions/24472895/how-to-sign-manifest-json-for-safari-push-notifications-using-golang
@@ -102,7 +102,7 @@ func (c *Config) GeneratePackage() {
 	// }
 }
 
-func (c *Config) makePackageFiles() string {
+func (c *PushPackageConfig) makePackageFiles() string {
 	// New random path
 	tempPath := "/temp/" + randomString(10)
 
@@ -120,7 +120,7 @@ func (c *Config) makePackageFiles() string {
 	return tempPath
 }
 
-func (c *Config) generateManifestJSON(tempPath string) jsonFile {
+func (c *PushPackageConfig) generateManifestJSON(tempPath string) jsonFile {
 
 	// 1. loop over files in the temp path
 	// Sha1s of all files in there so far (icons and website.json)
@@ -176,7 +176,7 @@ func (c *CertificatesConfig) generateManifestSignature(message []byte) []byte {
 	return signed
 }
 
-func (c *Config) generateWebsiteJSON() jsonFile {
+func (c *PushPackageConfig) generateWebsiteJSON() jsonFile {
 	// ToDo - Marshal the website config JSON
 	data, err := json.Marshal(c.website)
 	if err != nil {
@@ -189,7 +189,7 @@ func (c *Config) generateWebsiteJSON() jsonFile {
 	}
 }
 
-func (c *Config) copyIcons(tempPath string) {
+func (c *PushPackageConfig) copyIcons(tempPath string) {
 	// copy all files from from c.iconPath to tempPath
 	filepath.Walk(c.iconPath, func(fileName string, f os.FileInfo, err error) error {
 		copy(c.iconPath+"/"+fileName, tempPath+"/"+fileName)
