@@ -4,11 +4,11 @@
 ## Prerequisites
 Uses openssl to sign the manifest
 
-## installation
+## Installation
 
   $ go get github.com/rohenaz/go-web-push-package
 
-## usage
+## Usage
 
 ```
 Define your package config as follows:
@@ -37,7 +37,7 @@ Write your response
 
 ```
 w.Header().Set("Content-type", "application/zip")
-w.Write(buf.Bytes())
+w.Write(buffer.Bytes())
 ```
 
 the above would generate a package looking like this
