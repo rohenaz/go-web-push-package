@@ -63,26 +63,19 @@ func (c *PushPackageConfig) GeneratePackage() (*bytes.Buffer, error) {
 	tempPath := c.makePackageFiles()
 
 	// Make the manifest
-	log.Println("Generating manifest")
 	manifestJSON := c.generateManifestJSON(tempPath)
 	err := ioutil.WriteFile(tempPath+"/"+manifestJSON.name, manifestJSON.data, 0644)
 	checkErr(err)
-	log.Println("Generated manifest. Signing")
+
 	// Sign manifest
 	signature := c.Certificates.generateManifestSignature(manifestJSON.data)
 	// Write signature to package
 	err = ioutil.WriteFile(tempPath+"/signature", signature, 0644)
 	checkErr(err)
-	log.Println("Saved signature. " + string(signature))
-	log.Println("Making archive...")
 
 	// Zip up the files
 	buffer, err := RecursiveZip(tempPath)
-
 	checkErr(err)
-
-	fmt.Println("Zipped Files...")
-	logPathFiles(tempPath)
 
 	defer os.RemoveAll(tempPath) // clean up
 
@@ -91,43 +84,33 @@ func (c *PushPackageConfig) GeneratePackage() (*bytes.Buffer, error) {
 
 func (c *PushPackageConfig) makePackageFiles() string {
 	// New random path
-	tempPath, err := ioutil.TempDir("", "push_pkg")
+	name := strings.Replace(c.Website.WebsiteName, " ", "", -1)
+	tempPath, err := ioutil.TempDir("", name+".pushpackage")
 	checkErr(err)
 
-	// Get the icons
-	// This func should create them locally
-	log.Println("Copying files")
+	// Copy icons to tempPath
 	c.copyIcons(tempPath)
-	log.Println("Copied. Generating website json")
 
 	// Get WebsiteJSON
 	websiteJSON := c.generateWebsiteJSON()
 
 	// Create a new file
 	file := filepath.Join(tempPath, websiteJSON.name)
-	err := ioutil.WriteFile(file, websiteJSON.data, 0644)
+	err = ioutil.WriteFile(file, websiteJSON.data, 0644)
 	checkErr(err)
-	log.Println("Generated. Done making files")
 
 	return tempPath
 }
 
 func (c *PushPackageConfig) generateManifestJSON(tempPath string) jsonFile {
 
-	// 1. loop over files in the temp path
-	// Sha1s of all files in there so far (icons and website.json)
-
+	// generate json manifest
 	jsonLines := []string{}
 	jsonLines = append(jsonLines, "{")
 
 	err := filepath.Walk(tempPath, func(path string, f os.FileInfo, err error) error {
-		// path is relative path from root
-		// f should be the file info... but it isn't
-		mode := f.Mode()
-		if !mode.IsDir() {
-
-			// read the file and get the sha1
-			file, err := os.Open(path) // For read access.
+		if !f.Mode().IsDir() {
+			file, err := os.Open(path)
 			checkErr(err)
 
 			// read the file data
@@ -135,13 +118,12 @@ func (c *PushPackageConfig) generateManifestJSON(tempPath string) jsonFile {
 			_, err = file.Read(data)
 			checkErr(err)
 
-			// Get the hash
+			// Get the sha1 hash of the file
 			sha := sha1.Sum(data)
 
 			// Make the json line for the manifest
 			jsonLines = append(jsonLines, "\""+path+":"+string(sha[:20])+"\"")
 		}
-
 		return nil
 	})
 
@@ -156,13 +138,6 @@ func (c *PushPackageConfig) generateManifestJSON(tempPath string) jsonFile {
 		name: "manifest.json",
 		data: jsonData,
 	}
-
-}
-
-func logPathFiles(path string) {
-	ls, err := exec.Command("ls", path).Output()
-	checkErr(err)
-	log.Println(string(ls))
 }
 
 func (c *CertificatesConfig) generateManifestSignature(message []byte) []byte {
@@ -221,13 +196,10 @@ func openssl(stdin []byte, args ...string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// Copy the src file to dst. Any existing file will be overwritten and will not
-// copy file attributes.
+// Copy src to dst. Overwrites exiting files, does not copy attributes
 func copy(src, dst string) error {
-	// Read all content of src to data
 	data, err := ioutil.ReadFile(src)
 	checkErr(err)
-	// Write data to dst
 	err = ioutil.WriteFile(dst, data, 0644)
 	return err
 }
@@ -247,7 +219,7 @@ func RecursiveZip(pathToZip string) (*bytes.Buffer, error) {
 		}
 		checkErr(err)
 		relPath := strings.TrimPrefix(filePath, filepath.Dir(pathToZip))
-		logger.Println("Zipping " + info.Name())
+		logger.Printf("Zipping %s\t(%d bytes)", info.Name(), info.Size())
 		zipFile, err := myZip.Create(relPath)
 		checkErr(err)
 		fsFile, err := os.Open(filePath)
