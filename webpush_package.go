@@ -1,6 +1,10 @@
 package webpush_package
 
+// potentilly good reference
+// https://stackoverflow.com/questions/24472895/how-to-sign-manifest-json-for-safari-push-notifications-using-golang
+
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/sha1"
 	"encoding/json"
@@ -8,17 +12,18 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
+	"strings"
+
+	"github.com/deliverydudes/go-library/utils/logger"
 )
 
 type PushPackageConfig struct {
-	website      websiteConfig
-	iconPath     string
-	certificates certificatesConfig
+	Website      WebsiteConfig
+	IconPath     string
+	Certificates CertificatesConfig
 }
 
 // websiteName - The website name. This is the heading used in Notification Center.
@@ -27,18 +32,18 @@ type PushPackageConfig struct {
 // urlFormatString -The URL to go to when the notification is clicked. Use %@ as a placeholder for arguments you fill in when delivering your notification. This URL must use the http or https scheme; otherwise, it is invalid.
 // authenticationToken - A string that helps you identify the user. It is included in later requests to your web service. This string must 16 characters or greater.
 // webServiceURL - The location used to make requests to your web service. The trailing slash should be omitted.
-type websiteConfig struct {
-	websiteName         string   `json:"websiteName"`
-	websitePushID       string   `json:"websitePushID"`
-	allowedDomains      []string `json:"allowedDomains"`
-	urlFormatString     string   `json:"urlFormatString"`
-	authenticationToken string   `json:"authenticationToken"`
-	webServiceUrl       string   `json:"webServiceUrl"`
+type WebsiteConfig struct {
+	WebsiteName         string   `json:"websiteName"`
+	WebsitePushID       string   `json:"websitePushID"`
+	AllowedDomains      []string `json:"allowedDomains"`
+	UrlFormatString     string   `json:"urlFormatString"`
+	AuthenticationToken string   `json:"authenticationToken"`
+	WebServiceUrl       string   `json:"webServiceUrl"`
 }
 
-type certificatesConfig struct {
-	key    string
-	signer string
+type CertificatesConfig struct {
+	Key    string
+	Signer string
 }
 
 // Each key value pair in manifest file is a file path and its hash
@@ -54,69 +59,55 @@ type jsonFile struct {
 
 func (c *PushPackageConfig) GeneratePackage() (*bytes.Buffer, error) {
 
-	// potentilly good reference
-	// https://stackoverflow.com/questions/24472895/how-to-sign-manifest-json-for-safari-push-notifications-using-golang
-
-	// Generate the files and return the tempPath
+	// Generate the base files and return the tempPath
 	tempPath := c.makePackageFiles()
 
-	// Create a new zip archive.
-	buf := new(bytes.Buffer)
-	// z := zip.NewWriter(buf)
-
 	// Make the manifest
+	log.Println("Generating manifest")
 	manifestJSON := c.generateManifestJSON(tempPath)
 	err := ioutil.WriteFile(tempPath+"/"+manifestJSON.name, manifestJSON.data, 0644)
-	if err != nil {
-		panic(err)
-	}
-
+	checkErr(err)
+	log.Println("Generated manifest. Signing")
 	// Sign manifest
-	signature := c.certificates.generateManifestSignature(manifestJSON.data)
+	signature := c.Certificates.generateManifestSignature(manifestJSON.data)
 	// Write signature to package
 	err = ioutil.WriteFile(tempPath+"/signature", signature, 0644)
-	if err != nil {
-		panic(err)
-	}
-	// ToDo - zip package
+	checkErr(err)
+	log.Println("Saved signature. " + string(signature))
+	log.Println("Making archive...")
 
-	// Zip the files
-	// "github.com/pierrre/archivefile/zip"
-	// tmpDir, err := ioutil.TempDir("", "package_zip")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer func() {
-	// 	_ = os.RemoveAll(tmpDir)
-	// }()
-	//
-	// outFilePath := filepath.Join(tmpDir, "foo.zip")
-	//
-	// progress := func(archivePath string) {
-	// 	fmt.Println(archivePath)
-	// }
-	//
-	// err = ArchiveFile("testdata/foo", outFilePath, progress)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	return buf, err
+	// Zip up the files
+	buffer, err := RecursiveZip(tempPath)
+
+	checkErr(err)
+
+	fmt.Println("Zipped Files...")
+	logPathFiles(tempPath)
+
+	defer os.RemoveAll(tempPath) // clean up
+
+	return buffer, err
 }
 
 func (c *PushPackageConfig) makePackageFiles() string {
 	// New random path
-	tempPath := "/temp/" + randomString(10)
+	tempPath, err := ioutil.TempDir("", "push_pkg")
+	checkErr(err)
 
 	// Get the icons
 	// This func should create them locally
+	log.Println("Copying files")
 	c.copyIcons(tempPath)
+	log.Println("Copied. Generating website json")
 
 	// Get WebsiteJSON
 	websiteJSON := c.generateWebsiteJSON()
-	err := ioutil.WriteFile(tempPath+"/"+websiteJSON.name, websiteJSON.data, 0644)
-	if err != nil {
-		panic(err)
-	}
+
+	// Create a new file
+	file := filepath.Join(tempPath, websiteJSON.name)
+	err := ioutil.WriteFile(file, websiteJSON.data, 0644)
+	checkErr(err)
+	log.Println("Generated. Done making files")
 
 	return tempPath
 }
@@ -128,36 +119,38 @@ func (c *PushPackageConfig) generateManifestJSON(tempPath string) jsonFile {
 
 	jsonLines := []string{}
 	jsonLines = append(jsonLines, "{")
-	filepath.Walk(tempPath, func(path string, f os.FileInfo, err error) error {
 
-		// read the file and get the sha1
-		file, err := os.Open(path) // For read access.
-		if err != nil {
-			log.Fatal(err)
+	err := filepath.Walk(tempPath, func(path string, f os.FileInfo, err error) error {
+		// path is relative path from root
+		// f should be the file info... but it isn't
+		mode := f.Mode()
+		if !mode.IsDir() {
+
+			// read the file and get the sha1
+			file, err := os.Open(path) // For read access.
+			checkErr(err)
+
+			// read the file data
+			data := make([]byte, f.Size())
+			_, err = file.Read(data)
+			checkErr(err)
+
+			// Get the hash
+			sha := sha1.Sum(data)
+
+			// Make the json line for the manifest
+			jsonLines = append(jsonLines, "\""+path+":"+string(sha[:20])+"\"")
 		}
-
-		// read the file data
-		data := make([]byte, f.Size())
-		_, err = file.Read(data)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Get the hash
-		sha := sha1.Sum(data)
-
-		// Make the json line for the manifest
-		jsonLines = append(jsonLines, "\""+path+":"+string(sha[:20])+"\"")
 
 		return nil
 	})
 
+	checkErr(err)
+
 	jsonLines = append(jsonLines, "}")
 
 	jsonData, err := json.Marshal(jsonLines)
-	if err != nil {
-		panic(err)
-	}
+	checkErr(err)
 
 	return jsonFile{
 		name: "manifest.json",
@@ -166,23 +159,25 @@ func (c *PushPackageConfig) generateManifestJSON(tempPath string) jsonFile {
 
 }
 
-func (c *certificatesConfig) generateManifestSignature(message []byte) []byte {
+func logPathFiles(path string) {
+	ls, err := exec.Command("ls", path).Output()
+	checkErr(err)
+	log.Println(string(ls))
+}
+
+func (c *CertificatesConfig) generateManifestSignature(message []byte) []byte {
 	// ToDo - read local key file
-	keyfile := c.key
+	keyfile := c.Key
 	signed, err := openssl(message, "cms", "-sign", "-signer", keyfile)
-	if err != nil {
-		panic(err)
-	}
+	checkErr(err)
 
 	return signed
 }
 
 func (c *PushPackageConfig) generateWebsiteJSON() jsonFile {
 	// ToDo - Marshal the website config JSON
-	data, err := json.Marshal(c.website)
-	if err != nil {
-		panic(err)
-	}
+	data, err := json.Marshal(c.Website)
+	checkErr(err)
 
 	return jsonFile{
 		data: data,
@@ -192,8 +187,15 @@ func (c *PushPackageConfig) generateWebsiteJSON() jsonFile {
 
 func (c *PushPackageConfig) copyIcons(tempPath string) {
 	// copy all files from from c.iconPath to tempPath
-	filepath.Walk(c.iconPath, func(fileName string, f os.FileInfo, err error) error {
-		copy(c.iconPath+"/"+fileName, tempPath+"/"+fileName)
+	// Create the icons folder
+	err := os.Mkdir(filepath.Join(tempPath, "icon.iconset"), os.ModePerm)
+	checkErr(err)
+
+	filepath.Walk(c.IconPath, func(fileName string, f os.FileInfo, err error) error {
+		if !f.IsDir() {
+			dest := filepath.Join(tempPath, "icon.iconset/"+f.Name())
+			copy(fileName, dest)
+		}
 		return nil
 	})
 }
@@ -219,52 +221,43 @@ func openssl(stdin []byte, args ...string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-var src = rand.NewSource(time.Now().UnixNano())
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const (
-	letterIdxBits = 6                    // 6 bits to represent a letter index
-	letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
-	letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
-)
-
-// see this https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
-func randomString(n int) string {
-	b := make([]byte, n)
-	// A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
-	for i, cache, remain := n-1, src.Int63(), letterIdxMax; i >= 0; {
-		if remain == 0 {
-			cache, remain = src.Int63(), letterIdxMax
-		}
-		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
-			b[i] = letterBytes[idx]
-			i--
-		}
-		cache >>= letterIdxBits
-		remain--
-	}
-
-	return string(b)
-}
-
 // Copy the src file to dst. Any existing file will be overwritten and will not
 // copy file attributes.
 func copy(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
+	// Read all content of src to data
+	data, err := ioutil.ReadFile(src)
+	checkErr(err)
+	// Write data to dst
+	err = ioutil.WriteFile(dst, data, 0644)
+	return err
+}
 
-	out, err := os.Create(dst)
+func checkErr(err error) {
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
-	defer out.Close()
+}
 
-	_, err = io.Copy(out, in)
-	if err != nil {
-		return err
-	}
-	return out.Close()
+func RecursiveZip(pathToZip string) (*bytes.Buffer, error) {
+	buf := new(bytes.Buffer)
+	myZip := zip.NewWriter(buf)
+	err := filepath.Walk(pathToZip, func(filePath string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		checkErr(err)
+		relPath := strings.TrimPrefix(filePath, filepath.Dir(pathToZip))
+		logger.Println("Zipping " + info.Name())
+		zipFile, err := myZip.Create(relPath)
+		checkErr(err)
+		fsFile, err := os.Open(filePath)
+		checkErr(err)
+		_, err = io.Copy(zipFile, fsFile)
+		checkErr(err)
+		return nil
+	})
+	checkErr(err)
+	err = myZip.Close()
+	checkErr(err)
+	return buf, err
 }
